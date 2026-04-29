@@ -16,8 +16,10 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Treat pinning as a property of the active entity by transferring pinned state from windows into clusters and collapsed cluster cores, keeping pinned core visibility and IPC state consistent across create, absorb, collapse, expand, and dissolve flows.
 - Move pure overlap contact physics into `halley-core` so the Wayland compositor only wires it into runtime state.
+- Remove empty npm package manifests from the repository root.
 
 ### Fixed
+- Uncollapse a noded surface before maximizing it, so maximize opens the window instead of resizing the collapsed node marker.
 - Make close-focused target the currently focused item before surface history, silently closing every member of a focused collapsed cluster core without briefly revealing survivors or using stale cross-monitor fallback closes.
 - Keep running with built-in defaults when startup config loading fails while surfacing the preserved diagnostic in the error overlay instead of silently discarding the failure.
 - Keep focus-ring preview repainting while active so focus-ring size and offset reload changes are visible immediately.
