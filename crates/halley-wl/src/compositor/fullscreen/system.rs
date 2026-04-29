@@ -347,6 +347,70 @@ mod tests {
                 .contains_key(&bystander)
         );
     }
+
+    #[test]
+    fn fullscreen_roundtrip_preserves_active_maximize_session() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.maximize.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let target = state.model.field.spawn_surface(
+            "browser",
+            Vec2 { x: 120.0, y: 140.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(target, "monitor_a");
+        let original_pos = state.model.field.node(target).expect("target").pos;
+        let original_size = state
+            .model
+            .field
+            .node(target)
+            .expect("target")
+            .intrinsic_size;
+
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state,
+                target,
+                now,
+                "monitor_a"
+            )
+        );
+        let maximized = state.model.field.node(target).expect("target").clone();
+        assert_ne!(maximized.pos, original_pos);
+        assert_ne!(maximized.intrinsic_size, original_size);
+        assert!(
+            crate::compositor::workspace::state::maximize_session_active_on_monitor(
+                &state,
+                "monitor_a"
+            )
+        );
+
+        state.enter_xdg_fullscreen(target, None, now + std::time::Duration::from_millis(20));
+        assert!(
+            crate::compositor::workspace::state::maximize_session_active_on_monitor(
+                &state,
+                "monitor_a"
+            )
+        );
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
+
+        state.exit_xdg_fullscreen(target, now + std::time::Duration::from_millis(300));
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(700));
+
+        let restored = state.model.field.node(target).expect("target");
+        assert_eq!(restored.pos, maximized.pos);
+        assert_eq!(restored.intrinsic_size, maximized.intrinsic_size);
+        assert!(
+            crate::compositor::workspace::state::maximize_session_active_on_monitor(
+                &state,
+                "monitor_a"
+            )
+        );
+        assert!(restored.pinned);
+    }
 }
 
 pub(crate) struct FullscreenController<T> {
@@ -801,8 +865,6 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         let Some(node) = self.model.field.node(node_id).cloned() else {
             return;
         };
-
-        crate::compositor::workspace::state::abort_maximize_session_for_node(self, node_id);
 
         let saved_size = crate::compositor::surface::current_surface_size_for_node(self, node_id)
             .unwrap_or(node.intrinsic_size);
