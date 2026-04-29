@@ -400,8 +400,10 @@ fn apply_explicit_binding(
         "move_window" | "move-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::MoveWindow);
         }
-        "field_jump" | "field-jump" if is_pointer_button_code(key) => {
-            upsert_pointer_binding(out, mods, key, PointerBindingAction::FieldJump);
+        "pan_field" | "pan-field" | "drag_pan" | "drag-pan" | "field_jump" | "field-jump"
+            if is_pointer_button_code(key) =>
+        {
+            upsert_pointer_binding(out, mods, key, PointerBindingAction::PanField);
         }
         "resize_window" | "resize-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::ResizeWindow);
@@ -603,7 +605,7 @@ mod tests {
     };
     use crate::keybinds::{
         ClusterBindingAction, CompositorBindingAction, CompositorBindingScope, DirectionalAction,
-        TileBindingAction,
+        PointerBindingAction, TileBindingAction,
     };
     use crate::layout::RuntimeTuning;
     use std::collections::HashMap;
@@ -774,6 +776,29 @@ end
                         crate::keybinds::StackCycleDirection::Backward,
                     ))
         }));
+    }
+
+    #[test]
+    fn pan_field_pointer_aliases_parse() {
+        for action in [
+            "pan-field",
+            "pan_field",
+            "drag-pan",
+            "drag_pan",
+            "field-jump",
+            "field_jump",
+        ] {
+            let mut out = RuntimeTuning::default();
+            out.pointer_bindings.clear();
+            let bindings = vec![("mod+shift+leftmouse".to_string(), action.to_string())];
+
+            assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+            assert!(
+                out.pointer_bindings
+                    .iter()
+                    .any(|binding| { binding.action == PointerBindingAction::PanField })
+            );
+        }
     }
 
     #[test]

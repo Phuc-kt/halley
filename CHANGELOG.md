@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Rename the default explicit field-drag pointer action from `field-jump` to `pan-field`, keeping `field-jump` and `drag-pan` as config aliases for compatibility.
+
 ### Fixed
 - Treat XDG modal/transient dialogs as floating overlap windows by default, centering them over their parent window when available or the viewport otherwise.
 - Keep fullscreen video timer frames from delaying ready pan/zoom redraws on other monitors by including animation-active outputs in tty timer redraw eligibility before servicing video scanout.
@@ -13,6 +16,8 @@ All notable changes to this project will be documented in this file.
 - Prevent fullscreen timer frames from advancing camera smoothing on monitors that are still pending presentation by queuing animation-active outputs before non-animation outputs and skipping shared camera-smoothing ticks from fullscreen/direct-scanout timer frames in that case.
 - Fix zoom/pan progress being consumed by invisible fullscreen or game frames, which could cause the next visible frame to jump.
 - Preserve the existing NVIDIA and direct-scanout behavior with no changes to direct scanout, `HALLEY_FORCE_COMPOSED`, `HALLEY_DISABLE_DIRECT_SCANOUT`, sync waits, or frame stats.
+- Stop `move-window` from implicitly panning the field at monitor edges; `pan-field` keeps the old edge-pan window drag behavior, active drags can switch between the two modes as modifiers change, and empty-field left drag still pans the camera.
+- Prevent right-click holds on empty field space from starting a camera pan.
 
 ## [v0.2.0] - 2026-04-28
 

@@ -17,7 +17,7 @@ pub(crate) fn handle_button_release(
     world_now: halley_core::field::Vec2,
 ) {
     match action {
-        Some(PointerBindingAction::MoveWindow | PointerBindingAction::FieldJump) => {
+        Some(PointerBindingAction::MoveWindow | PointerBindingAction::PanField) => {
             if let Some(d) = ps.drag {
                 let now = Instant::now();
                 finish_pointer_drag(st, ps, d.node_id, d.started_active, world_now, now);

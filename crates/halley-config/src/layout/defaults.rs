@@ -119,7 +119,7 @@ pub fn default_pointer_bindings(modifier: KeyModifiers) -> Vec<PointerBinding> {
         PointerBinding {
             modifiers: transfer_modifier,
             button: 272,
-            action: PointerBindingAction::FieldJump,
+            action: PointerBindingAction::PanField,
         },
         PointerBinding {
             modifiers: modifier,

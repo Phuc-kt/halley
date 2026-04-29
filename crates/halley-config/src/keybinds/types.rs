@@ -136,7 +136,7 @@ pub struct CompositorBinding {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerBindingAction {
     MoveWindow,
-    FieldJump,
+    PanField,
     ResizeWindow,
 }
 
