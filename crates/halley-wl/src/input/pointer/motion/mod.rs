@@ -130,6 +130,19 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             )
         );
 
+    let error_toast_hovered = crate::overlay::error_toast_hit_test(
+        st,
+        routing.monitor.as_str(),
+        routing.ws_w,
+        routing.ws_h,
+        routing.local_sx as f64,
+        routing.local_sy as f64,
+    );
+    st.ui.render_state.set_overlay_error_toast_hovered(
+        routing.monitor.as_str(),
+        error_toast_hovered,
+        st.now_ms(now),
+    );
     let mut ps = ctx.pointer_state.borrow_mut();
     ps.world = p;
     ps.screen = (routing.global_sx, routing.global_sy);

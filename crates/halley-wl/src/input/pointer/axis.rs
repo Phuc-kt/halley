@@ -27,6 +27,19 @@ fn now_millis_u32() -> u32 {
         .unwrap_or(0)
 }
 
+fn axis_scroll_delta(amount_v120: Option<f64>, amount_px: Option<f64>) -> i32 {
+    let raw = if let Some(v120) = amount_v120 {
+        -(v120 / 120.0) * 48.0
+    } else {
+        -amount_px.unwrap_or(0.0)
+    };
+    if raw.abs() < 1.0 {
+        0
+    } else {
+        raw.round() as i32
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     st: &mut Halley,
@@ -111,6 +124,20 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         return;
     }
 
+    let (sx, sy) = {
+        let ps = ctx.pointer_state.borrow();
+        (ps.screen.0, ps.screen.1)
+    };
+    let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
+    let context = pointer_screen_context_for_monitor(st, target_monitor, (sx, sy), true, true);
+    {
+        let mut ps = ctx.pointer_state.borrow_mut();
+        ps.workspace_size = (context.ws_w, context.ws_h);
+        ps.world = context.world;
+    }
+    let now = Instant::now();
+    let now_ms = st.now_ms(now);
+
     let mut steps = (amount_v120_vertical.unwrap_or(0.0) as f32) / 120.0;
     if steps.abs() < f32::EPSILON {
         let px = amount_vertical.unwrap_or(0.0) as f32;
@@ -118,9 +145,41 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
             steps = px / 40.0;
         }
     }
+    let mut scroll_dx = axis_scroll_delta(amount_v120_horizontal, amount_horizontal);
+    let mut scroll_dy = -axis_scroll_delta(amount_v120_vertical, amount_vertical);
+    let mods = ctx.mod_state.borrow().clone();
+    if mods.shift_down && scroll_dx == 0 && scroll_dy != 0 {
+        scroll_dx = scroll_dy;
+        scroll_dy = 0;
+    }
+    if (scroll_dx != 0 || scroll_dy != 0)
+        && crate::overlay::error_toast_hit_test(
+            st,
+            context.monitor.as_str(),
+            context.ws_w,
+            context.ws_h,
+            context.local_sx as f64,
+            context.local_sy as f64,
+        )
+    {
+        st.ui
+            .render_state
+            .set_overlay_error_toast_hovered(context.monitor.as_str(), true, now_ms);
+        let changed = crate::overlay::scroll_error_toast(
+            st,
+            context.monitor.as_str(),
+            context.ws_w,
+            context.ws_h,
+            scroll_dx,
+            scroll_dy,
+        );
+        if changed {
+            ctx.backend.request_redraw();
+        }
+        return;
+    }
     if steps.abs() >= f32::EPSILON {
         let steps = steps.clamp(-4.0, 4.0);
-        let mods = ctx.mod_state.borrow().clone();
         let wheel_code = if steps > 0.0 {
             WHEEL_UP_CODE
         } else {
@@ -154,21 +213,6 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
             return;
         }
     }
-
-    let (sx, sy) = {
-        let ps = ctx.pointer_state.borrow();
-        (ps.screen.0, ps.screen.1)
-    };
-    let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
-    let context = pointer_screen_context_for_monitor(st, target_monitor, (sx, sy), true, true);
-    {
-        let mut ps = ctx.pointer_state.borrow_mut();
-        ps.workspace_size = (context.ws_w, context.ws_h);
-    }
-    let world_now = context.world;
-    ctx.pointer_state.borrow_mut().world = world_now;
-    let now = Instant::now();
-    let now_ms = st.now_ms(now);
     if steps.abs() >= f32::EPSILON {
         let overlay = crate::overlay::OverlayView::from_halley(st);
         let overflow_scrollable = overlay
