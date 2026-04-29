@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use super::super::button::ButtonFrame;
+use super::super::button::{ButtonFrame, active_pointer_binding};
 use crate::backend::interface::BackendView;
 use crate::compositor::interaction::state::ActiveDragState;
 use crate::compositor::interaction::{DragAxisMode, DragCtx, HitNode, ModState, PointerState};
@@ -23,6 +23,38 @@ pub(crate) fn node_is_pointer_draggable(st: &Halley, node_id: halley_core::field
     })
 }
 
+fn drag_edge_pan_eligible(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+    drag_monitor: &str,
+    allow_monitor_transfer: bool,
+) -> bool {
+    !allow_monitor_transfer
+        && st.model.field.node(node_id).is_some_and(|n| {
+            n.kind == halley_core::field::NodeKind::Surface
+                && n.state == halley_core::field::NodeState::Active
+                && st.model.field.is_visible(node_id)
+        })
+        && crate::compositor::interaction::state::node_fully_visible_on_monitor(
+            st,
+            drag_monitor,
+            node_id,
+        )
+        .unwrap_or(false)
+}
+
+fn drag_allows_monitor_transfer_for_mods(st: &Halley, mods: &ModState, drag: DragCtx) -> bool {
+    if !drag.requires_drag_modifier {
+        return drag.allow_monitor_transfer;
+    }
+
+    match active_pointer_binding(st, mods, 0x110) {
+        Some(halley_config::PointerBindingAction::PanField) => false,
+        Some(halley_config::PointerBindingAction::MoveWindow) => true,
+        _ => drag.allow_monitor_transfer,
+    }
+}
+
 pub(crate) fn begin_drag(
     st: &mut Halley,
     ps: &mut PointerState,
@@ -39,17 +71,12 @@ pub(crate) fn begin_drag(
     st.input.interaction_state.pending_collapsed_node_press = None;
     st.input.interaction_state.pending_collapsed_node_click = None;
     let drag_monitor = st.monitor_for_node_or_current(hit.node_id);
-    let edge_pan_eligible = st.model.field.node(hit.node_id).is_some_and(|n| {
-        n.kind == halley_core::field::NodeKind::Surface
-            && n.state == halley_core::field::NodeState::Active
-            && st.model.field.is_visible(hit.node_id)
-    })
-        && crate::compositor::interaction::state::node_fully_visible_on_monitor(
-            st,
-            drag_monitor.as_str(),
-            hit.node_id,
-        )
-        .unwrap_or(false);
+    let edge_pan_eligible = drag_edge_pan_eligible(
+        st,
+        hit.node_id,
+        drag_monitor.as_str(),
+        allow_monitor_transfer,
+    );
     let mut drag_ctx = DragCtx {
         node_id: hit.node_id,
         allow_monitor_transfer,
@@ -137,8 +164,26 @@ mod tests {
         fn request_redraw(&self) {}
     }
 
+    fn move_window_mods() -> ModState {
+        ModState {
+            alt_down: true,
+            left_alt_down: true,
+            ..ModState::default()
+        }
+    }
+
+    fn pan_field_mods() -> ModState {
+        ModState {
+            alt_down: true,
+            left_alt_down: true,
+            shift_down: true,
+            left_shift_down: true,
+            ..ModState::default()
+        }
+    }
+
     #[test]
-    fn active_surface_drag_enables_edge_pan() {
+    fn move_window_drag_does_not_enable_edge_pan() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
         let id = st.model.field.spawn_surface(
@@ -171,22 +216,146 @@ mod tests {
             hit,
             frame,
             world_now,
-            false,
+            true,
             false,
         );
 
-        assert!(ps.drag.is_some_and(|drag| drag.edge_pan_eligible));
+        assert!(ps.drag.is_some_and(|drag| !drag.edge_pan_eligible));
+        assert!(!st.input.interaction_state.grabbed_edge_pan_active);
+    }
+
+    #[test]
+    fn shift_pressed_during_move_window_drag_enables_edge_pan_when_visible() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = st.model.field.spawn_surface(
+            "dragged",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        let hit = HitNode {
+            node_id: id,
+            move_surface: false,
+            is_core: false,
+        };
+        let world_now = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+        let frame = ButtonFrame {
+            global_sx: 200.0,
+            global_sy: 120.0,
+            sx: 200.0,
+            sy: 120.0,
+            ws_w: 1600,
+            ws_h: 1200,
+            world_now,
+            workspace_active: true,
+        };
+        let mut ps = PointerState::default();
+        begin_drag(
+            &mut st,
+            &mut ps,
+            &TestBackend,
+            hit,
+            frame,
+            world_now,
+            true,
+            true,
+        );
+
+        let monitor = st.monitor_for_node_or_current(id);
+        assert!(handle_drag_motion(
+            &mut st,
+            &TestBackend,
+            &pan_field_mods(),
+            &mut ps,
+            true,
+            monitor.as_str(),
+            1600,
+            1200,
+            200.0,
+            120.0,
+            world_now,
+            Instant::now(),
+        ));
+
+        let drag = ps.drag.expect("active drag");
+        assert!(!drag.allow_monitor_transfer);
+        assert!(drag.edge_pan_eligible);
         assert!(
             st.input
                 .interaction_state
                 .active_drag
                 .as_ref()
-                .is_some_and(|drag| drag.edge_pan_eligible)
+                .is_some_and(|drag| !drag.allow_monitor_transfer && drag.edge_pan_eligible)
         );
     }
 
     #[test]
-    fn partially_offscreen_active_surface_drag_disables_edge_pan() {
+    fn releasing_shift_during_pan_field_drag_returns_to_move_window_mode() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = st.model.field.spawn_surface(
+            "dragged",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        let hit = HitNode {
+            node_id: id,
+            move_surface: false,
+            is_core: false,
+        };
+        let world_now = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+        let frame = ButtonFrame {
+            global_sx: 200.0,
+            global_sy: 120.0,
+            sx: 200.0,
+            sy: 120.0,
+            ws_w: 1600,
+            ws_h: 1200,
+            world_now,
+            workspace_active: true,
+        };
+        let mut ps = PointerState::default();
+        begin_drag(
+            &mut st,
+            &mut ps,
+            &TestBackend,
+            hit,
+            frame,
+            world_now,
+            false,
+            true,
+        );
+
+        let monitor = st.monitor_for_node_or_current(id);
+        assert!(handle_drag_motion(
+            &mut st,
+            &TestBackend,
+            &move_window_mods(),
+            &mut ps,
+            true,
+            monitor.as_str(),
+            1600,
+            1200,
+            200.0,
+            120.0,
+            world_now,
+            Instant::now(),
+        ));
+
+        let drag = ps.drag.expect("active drag");
+        assert!(drag.allow_monitor_transfer);
+        assert!(!drag.edge_pan_eligible);
+        assert!(
+            st.input
+                .interaction_state
+                .active_drag
+                .as_ref()
+                .is_some_and(|drag| drag.allow_monitor_transfer && !drag.edge_pan_eligible)
+        );
+    }
+
+    #[test]
+    fn partially_offscreen_active_surface_drag_does_not_enable_edge_pan() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
         let id = st.model.field.spawn_surface(
@@ -224,13 +393,7 @@ mod tests {
         );
 
         assert!(ps.drag.is_some_and(|drag| !drag.edge_pan_eligible));
-        assert!(
-            st.input
-                .interaction_state
-                .active_drag
-                .as_ref()
-                .is_some_and(|drag| !drag.edge_pan_eligible)
-        );
+        assert!(!st.input.interaction_state.grabbed_edge_pan_active);
     }
 
     #[test]
@@ -412,9 +575,15 @@ pub(super) fn handle_drag_motion(
     }
 
     let mut next_drag = drag;
-    let drag_allow_monitor_transfer = super::super::button::active_pointer_binding(st, mods, 0x110)
-        == Some(halley_config::PointerBindingAction::FieldJump);
+    let drag_allow_monitor_transfer = drag_allows_monitor_transfer_for_mods(st, mods, next_drag);
     next_drag.allow_monitor_transfer = drag_allow_monitor_transfer;
+    let edge_pan_monitor = st.monitor_for_node_or_current(drag.node_id);
+    next_drag.edge_pan_eligible = drag_edge_pan_eligible(
+        st,
+        drag.node_id,
+        edge_pan_monitor.as_str(),
+        drag_allow_monitor_transfer,
+    );
     let dt = now
         .saturating_duration_since(next_drag.last_update_at)
         .as_secs_f32()

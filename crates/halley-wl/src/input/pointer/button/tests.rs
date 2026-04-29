@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use super::press::handle_left_press;
+use super::press::{handle_left_press, handle_pan_binding_press, handle_right_press};
 use super::*;
 use crate::backend::interface::TtyBackendHandle;
 use crate::compositor::interaction::state::{PendingCollapsedNodeClick, PendingCoreClick};
@@ -54,6 +54,103 @@ fn spawn_collapsed_surface(
             .set_state(node, halley_core::field::NodeState::Node)
     );
     node
+}
+
+#[test]
+fn empty_left_drag_still_starts_field_pan() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let backend = TtyBackendHandle::new(800, 600);
+    let mut ps = PointerState::default();
+
+    handle_left_press(
+        &mut st,
+        &mut ps,
+        &backend,
+        false,
+        false,
+        None,
+        pointer_frame(),
+    );
+
+    assert!(ps.panning);
+}
+
+#[test]
+fn move_window_binding_on_empty_field_still_starts_field_pan() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let backend = TtyBackendHandle::new(800, 600);
+    let mut ps = PointerState::default();
+
+    handle_left_press(
+        &mut st,
+        &mut ps,
+        &backend,
+        true,
+        true,
+        None,
+        pointer_frame(),
+    );
+
+    assert!(ps.panning);
+}
+
+#[test]
+fn pan_field_binding_starts_pan() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let backend = TtyBackendHandle::new(800, 600);
+    let mut ps = PointerState::default();
+
+    handle_pan_binding_press(&mut st, &mut ps, &backend, None, pointer_frame());
+
+    assert!(ps.panning);
+}
+
+#[test]
+fn pan_field_binding_over_window_starts_edge_pan_drag() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let backend = TtyBackendHandle::new(800, 600);
+    let node_id = st.model.field.spawn_surface(
+        "dragged",
+        halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+        halley_core::field::Vec2 { x: 200.0, y: 120.0 },
+    );
+    st.assign_node_to_monitor(node_id, "monitor_a");
+    let _ = st
+        .model
+        .field
+        .set_state(node_id, halley_core::field::NodeState::Active);
+    let mut ps = PointerState::default();
+
+    handle_pan_binding_press(
+        &mut st,
+        &mut ps,
+        &backend,
+        Some(HitNode {
+            node_id,
+            move_surface: false,
+            is_core: false,
+        }),
+        pointer_frame(),
+    );
+
+    assert!(!ps.panning);
+    assert!(ps.drag.is_some_and(|drag| drag.edge_pan_eligible));
+}
+
+#[test]
+fn right_press_on_empty_field_does_not_pan() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let backend = TtyBackendHandle::new(800, 600);
+    let mut ps = PointerState::default();
+
+    handle_right_press(&mut st, &mut ps, &backend, false, None, pointer_frame());
+
+    assert!(!ps.panning);
 }
 
 #[test]

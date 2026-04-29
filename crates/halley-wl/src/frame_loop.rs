@@ -286,7 +286,7 @@ fn tick_pending_core_hover_bloom(st: &mut Halley, now_ms: u64) {
 }
 
 fn tick_active_drag(st: &mut Halley, now: Instant) {
-    let Some(mut active_drag) = st.input.interaction_state.active_drag.clone() else {
+    let Some(active_drag) = st.input.interaction_state.active_drag.clone() else {
         crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
         return;
     };
@@ -314,30 +314,30 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
 
     let moved = if active_drag.allow_monitor_transfer {
         crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
-        st.assign_node_to_monitor(node_id, active_drag.pointer_monitor.as_str());
+        let drag_monitor = active_drag.pointer_monitor.clone();
         let to = crate::compositor::interaction::state::dragged_node_cluster_core_clamp(
             st,
-            active_drag.pointer_monitor.as_str(),
+            drag_monitor.as_str(),
             node_id,
             desired_to,
         )
         .and_then(|(clamped, cid, _)| {
-            (st.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
-                .then_some(clamped)
+            (st.cluster_bloom_for_monitor(drag_monitor.as_str()) == Some(cid)).then_some(clamped)
         })
         .unwrap_or(desired_to);
+        st.assign_node_to_monitor(node_id, drag_monitor.as_str());
         st.carry_surface_non_overlap(node_id, to, false)
     } else if !active_drag.edge_pan_eligible {
         crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
+        let drag_monitor = active_drag.pointer_monitor.clone();
         let to = crate::compositor::interaction::state::dragged_node_cluster_core_clamp(
             st,
-            active_drag.pointer_monitor.as_str(),
+            drag_monitor.as_str(),
             node_id,
             desired_to,
         )
         .and_then(|(clamped, cid, _)| {
-            (st.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
-                .then_some(clamped)
+            (st.cluster_bloom_for_monitor(drag_monitor.as_str()) == Some(cid)).then_some(clamped)
         })
         .unwrap_or(desired_to);
         st.carry_surface_non_overlap(node_id, to, false)
@@ -353,6 +353,7 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
             },
         )
     {
+        let mut active_drag = active_drag.clone();
         if active_drag.edge_pan_x.sign() != 0.0 && edge_contact.x != active_drag.edge_pan_x.sign() {
             active_drag.edge_pan_x = crate::compositor::interaction::DragAxisMode::Free;
         }

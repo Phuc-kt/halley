@@ -126,7 +126,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             super::button::active_pointer_binding(st, &mods, 0x110),
             Some(
                 halley_config::PointerBindingAction::MoveWindow
-                    | halley_config::PointerBindingAction::FieldJump
+                    | halley_config::PointerBindingAction::PanField
             )
         );
 

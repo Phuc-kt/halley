@@ -40,6 +40,26 @@ fn begin_pan_if_allowed(
     backend.request_redraw();
 }
 
+pub(super) fn handle_pan_binding_press(
+    st: &mut Halley,
+    ps: &mut PointerState,
+    backend: &dyn BackendView,
+    hit: Option<HitNode>,
+    frame: ButtonFrame,
+) {
+    if let Some(hit) = hit
+        && node_is_pointer_draggable(st, hit.node_id)
+    {
+        if hit.is_core {
+            let _ = collapse_bloom_for_core_if_open(st, hit.node_id);
+        }
+        begin_drag(st, ps, backend, hit, frame, frame.world_now, false, true);
+        return;
+    }
+    let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
+    begin_pan_if_allowed(st, ps, backend, monitor, frame.global_sx, frame.global_sy);
+}
+
 pub(super) fn begin_bloom_pull_preview(
     st: &mut Halley,
     cluster_id: halley_core::cluster::ClusterId,
@@ -208,10 +228,7 @@ pub(super) fn handle_right_press(
             clear_pointer_activity(st, ps);
             return;
         }
-        let now = Instant::now();
-        let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
-        st.focus_monitor_view(monitor.as_str(), now);
-        begin_pan_if_allowed(st, ps, backend, monitor, frame.global_sx, frame.global_sy);
+        backend.request_redraw();
         return;
     };
     let can_resize = node_allows_interactive_resize(st, hit.node_id);
@@ -236,7 +253,7 @@ pub(super) fn handle_move_binding_press(
         let now = Instant::now();
         let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
         st.focus_monitor_view(monitor.as_str(), now);
-        begin_pan_if_allowed(st, ps, backend, monitor, frame.global_sx, frame.global_sy);
+        backend.request_redraw();
         return;
     };
     let drag_target_ok = node_is_pointer_draggable(st, hit.node_id);

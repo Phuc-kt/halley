@@ -692,7 +692,7 @@ keybinds:
   # Mouse actions.
   "$var.mod+leftmouse" "move-window"
   "$var.mod+rightmouse" "resize-window"
-  "$var.mod+shift+leftmouse" "field-jump"
+  "$var.mod+shift+leftmouse" "pan-field"
 
   # Tile layout controls.
   "$var.mod+left" "tile-focus left"

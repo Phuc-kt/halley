@@ -43,7 +43,7 @@ pub(super) fn maybe_begin_core_drag_from_pending_press(
                         workspace_active: false,
                     },
                     pointer_world,
-                    false,
+                    true,
                     false,
                 );
                 backend.request_redraw();

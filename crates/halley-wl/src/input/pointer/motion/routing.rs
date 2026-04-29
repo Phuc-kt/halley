@@ -43,8 +43,15 @@ pub(super) fn compute_motion_routing(
 
     let drag_state = ps.drag.map(|drag| {
         let owner = st.monitor_for_node_or_current(drag.node_id);
-        let allow_monitor_transfer =
-            active_pointer_binding(st, mods, 0x110) == Some(PointerBindingAction::FieldJump);
+        let allow_monitor_transfer = if drag.requires_drag_modifier {
+            match active_pointer_binding(st, mods, 0x110) {
+                Some(PointerBindingAction::PanField) => false,
+                Some(PointerBindingAction::MoveWindow) => true,
+                _ => drag.allow_monitor_transfer,
+            }
+        } else {
+            drag.allow_monitor_transfer
+        };
         (drag, owner, allow_monitor_transfer)
     });
 
@@ -80,7 +87,7 @@ pub(super) fn compute_motion_routing(
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
     } else if let Some(owner) = locked_pan_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
-    } else if allow_unbounded_screen {
+    } else if allow_unbounded_screen && drag_state.is_none() {
         (raw_sx, raw_sy)
     } else {
         (sx, sy)
@@ -112,12 +119,15 @@ pub(super) fn compute_motion_routing(
         }
     };
 
+    let drag_allows_monitor_transfer = drag_state
+        .as_ref()
+        .is_some_and(|(_, _, allow_monitor_transfer)| *allow_monitor_transfer);
     let context = pointer_screen_context_for_monitor(
         st,
         target_monitor,
         (effective_sx, effective_sy),
         !grabbed_layer_surface_active,
-        !grabbed_layer_surface_active,
+        !grabbed_layer_surface_active && !drag_allows_monitor_transfer,
     );
 
     MotionRoutingContext {
@@ -227,4 +237,73 @@ pub(super) fn dispatch_pointer_motion(
     }
 
     (desktop_hover, hover_focus_blocked)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compositor::interaction::DragCtx;
+    use halley_core::field::Vec2;
+    use smithay::reexports::wayland_server::Display;
+    use std::time::Instant;
+
+    fn single_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        tuning
+    }
+
+    #[test]
+    fn move_window_drag_clamps_to_outer_edge_pointer() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let node_id = st.model.field.spawn_surface(
+            "dragged",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 200.0, y: 120.0 },
+        );
+        st.assign_node_to_monitor(node_id, "monitor_a");
+        let mut ps = PointerState::default();
+        ps.drag = Some(DragCtx {
+            node_id,
+            allow_monitor_transfer: true,
+            requires_drag_modifier: true,
+            edge_pan_eligible: false,
+            current_offset: Vec2 { x: 0.0, y: 0.0 },
+            center_latched: false,
+            started_active: true,
+            edge_pan_x: crate::compositor::interaction::DragAxisMode::Free,
+            edge_pan_y: crate::compositor::interaction::DragAxisMode::Free,
+            edge_pan_pressure: Vec2 { x: 0.0, y: 0.0 },
+            last_pointer_world: Vec2 { x: 400.0, y: 300.0 },
+            last_update_at: Instant::now(),
+            release_velocity: Vec2 { x: 0.0, y: 0.0 },
+        });
+
+        let routing = compute_motion_routing(
+            &mut st,
+            &ps,
+            &ModState::default(),
+            960.0,
+            300.0,
+            799.0,
+            300.0,
+            true,
+        );
+
+        assert_eq!(routing.monitor, "monitor_a");
+        assert_eq!(routing.global_sx, 799.0);
+        assert_eq!(routing.local_sx, 799.0);
+    }
 }

@@ -41,7 +41,7 @@ pub(crate) use release::handle_button_release;
 
 use press::{
     begin_bloom_pull_preview, handle_left_press, handle_move_binding_press,
-    handle_resize_binding_press, handle_right_press,
+    handle_pan_binding_press, handle_resize_binding_press, handle_right_press,
 };
 
 pub(crate) fn handle_pointer_button_input<B: BackendView>(
@@ -108,7 +108,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         cluster_pointer_action,
         Some(
             PointerBindingAction::MoveWindow
-                | PointerBindingAction::FieldJump
+                | PointerBindingAction::PanField
                 | PointerBindingAction::ResizeWindow
         )
     ) || ps.drag.is_some()
@@ -372,18 +372,19 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 ps.resize,
             );
             if left {
-                handle_left_press(
-                    st,
-                    &mut ps,
-                    ctx.backend,
-                    matches!(
-                        matched_action,
-                        Some(PointerBindingAction::MoveWindow | PointerBindingAction::FieldJump)
-                    ),
-                    matches!(matched_action, Some(PointerBindingAction::FieldJump)),
-                    hit,
-                    frame,
-                );
+                if matches!(matched_action, Some(PointerBindingAction::PanField)) {
+                    handle_pan_binding_press(st, &mut ps, ctx.backend, hit, frame);
+                } else {
+                    handle_left_press(
+                        st,
+                        &mut ps,
+                        ctx.backend,
+                        matches!(matched_action, Some(PointerBindingAction::MoveWindow)),
+                        true,
+                        hit,
+                        frame,
+                    );
+                }
             } else if right {
                 handle_right_press(
                     st,
@@ -396,10 +397,10 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             } else {
                 match matched_action {
                     Some(PointerBindingAction::MoveWindow) => {
-                        handle_move_binding_press(st, &mut ps, ctx.backend, hit, frame, false);
-                    }
-                    Some(PointerBindingAction::FieldJump) => {
                         handle_move_binding_press(st, &mut ps, ctx.backend, hit, frame, true);
+                    }
+                    Some(PointerBindingAction::PanField) => {
+                        handle_pan_binding_press(st, &mut ps, ctx.backend, hit, frame);
                     }
                     Some(PointerBindingAction::ResizeWindow) => {
                         handle_resize_binding_press(st, &mut ps, ctx.backend, hit, frame);
