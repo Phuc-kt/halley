@@ -4,9 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Changed
-- Rename the default explicit field-drag pointer action from `field-jump` to `pan-field`, keeping `field-jump` and `drag-pan` as config aliases for compatibility.
 ### Added
+- Add configurable Aperture placement for cursor-following, a fixed monitor, or every output, including per-output Aperture status IPC and CLI output.
+- Add `aperture-peek` styling for corner, rounded background, radius, and clock appearance, plus an `examples/aperture.rune` sample config.
 - Add user-pinned window/node/core support with default `mod+p`, `field.pins` badge styling, pinned Bearings visibility, and pin badge rendering from the bundled SVG asset.
 - Add `field.pins.size` for scaling pin badges, with more padding between the pin glyph and circular badge background.
 - Add `field.pins.background-colour` for configuring the circular pin badge background independently from the pin glyph colour.
@@ -14,9 +14,11 @@ All notable changes to this project will be documented in this file.
 - Add strict config validation diagnostics for unknown Halley keys and invalid literals, with path, line, source text, and suggestions when available.
 
 ### Changed
+- Rework `halley-aperture` standalone rendering to maintain per-output layer surfaces, redraw clocks on a timed Wayland poll loop, and keep animations advancing without busy sleeping.
 - Treat pinning as a property of the active entity by transferring pinned state from windows into clusters and collapsed cluster cores, keeping pinned core visibility and IPC state consistent across create, absorb, collapse, expand, and dissolve flows.
 - Move pure overlap contact physics into `halley-core` so the Wayland compositor only wires it into runtime state.
 - Remove empty npm package manifests from the repository root.
+- Rename the default explicit field-drag pointer action from `field-jump` to `pan-field`, keeping `field-jump` and `drag-pan` as config aliases for compatibility.
 
 ### Fixed
 - Uncollapse a noded surface before maximizing it, so maximize opens the window instead of resizing the collapsed node marker.
