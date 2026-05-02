@@ -66,6 +66,9 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     let (ws_w, ws_h) = ctx.backend.window_size_i32();
     let (frame, target_monitor, clamped_screen) =
         button_frame_for_monitor(st, ws_w, ws_h, ps.screen);
+
+    st.activate_monitor(target_monitor.as_str());
+
     let (sx, sy) = clamped_screen;
     let (local_w, local_h, local_sx, local_sy) = (frame.ws_w, frame.ws_h, frame.sx, frame.sy);
     ps.screen = (sx, sy);

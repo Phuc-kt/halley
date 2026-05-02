@@ -68,6 +68,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
             (ps.screen.0, ps.screen.1)
         };
         let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
+        st.activate_monitor(target_monitor.as_str());
         let context = pointer_screen_context_for_monitor(st, target_monitor, (sx, sy), true, true);
         {
             let mut ps = ctx.pointer_state.borrow_mut();
@@ -129,6 +130,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         (ps.screen.0, ps.screen.1)
     };
     let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
+    st.activate_monitor(target_monitor.as_str());
     let context = pointer_screen_context_for_monitor(st, target_monitor, (sx, sy), true, true);
     {
         let mut ps = ctx.pointer_state.borrow_mut();
