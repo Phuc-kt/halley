@@ -241,8 +241,14 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     }
     let resize_preview = ctx.pointer_state.borrow().resize;
     if let Some(pointer) = st.platform.seat.get_pointer() {
-        if pointer.current_focus().is_none()
-            && let Some(focus) = pointer_focus_for_screen(
+        let constrained_surface_info =
+            crate::compositor::interaction::pointer::active_constrained_pointer_surface(st);
+        let locked_surface = constrained_surface_info
+            .as_ref()
+            .and_then(|(s, locked)| if *locked { Some(s.clone()) } else { None });
+
+        if pointer.current_focus().is_none() {
+            if let Some(mut focus) = pointer_focus_for_screen(
                 st,
                 context.ws_w,
                 context.ws_h,
@@ -250,30 +256,54 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                 context.local_sy,
                 now,
                 resize_preview,
-            )
-        {
-            let location =
-                if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0)
-                    || crate::protocol::wayland::session_lock::is_session_lock_surface(st, &focus.0)
-                {
-                    (context.local_sx as f64, context.local_sy as f64).into()
-                } else {
-                    let cam_scale = st.camera_render_scale() as f64;
-                    (
-                        context.local_sx as f64 / cam_scale,
-                        context.local_sy as f64 / cam_scale,
+            ) {
+                if let Some(constrained) =
+                    crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(
+                        st, &focus.0,
                     )
-                        .into()
-                };
-            pointer.motion(
-                st,
-                Some(focus),
-                &MotionEvent {
-                    location,
-                    serial: SERIAL_COUNTER.next_serial(),
-                    time: now_millis_u32(),
-                },
-            );
+                {
+                    focus.0 = constrained;
+                    focus.1 = pointer.current_location();
+                }
+
+                if locked_surface.is_none() {
+                    let location = if crate::compositor::monitor::layer_shell::is_layer_surface(
+                        st, &focus.0,
+                    ) || crate::protocol::wayland::session_lock::is_session_lock_surface(
+                        st, &focus.0,
+                    ) {
+                        (context.local_sx as f64, context.local_sy as f64).into()
+                    } else {
+                        let cam_scale = st.camera_render_scale() as f64;
+                        (
+                            context.local_sx as f64 / cam_scale,
+                            context.local_sy as f64 / cam_scale,
+                        )
+                            .into()
+                    };
+                    pointer.motion(
+                        st,
+                        Some(focus),
+                        &MotionEvent {
+                            location,
+                            serial: SERIAL_COUNTER.next_serial(),
+                            time: now_millis_u32(),
+                        },
+                    );
+                } else {
+                    // Locked, just set the focus without motion events if possible
+                    // Smithay usually needs motion() to set focus.
+                    pointer.motion(
+                        st,
+                        Some((locked_surface.unwrap(), pointer.current_location())),
+                        &MotionEvent {
+                            location: pointer.current_location(),
+                            serial: SERIAL_COUNTER.next_serial(),
+                            time: now_millis_u32(),
+                        },
+                    );
+                }
+            }
         }
         if pointer.current_focus().is_some() {
             let mut frame = AxisFrame::new(now_millis_u32())

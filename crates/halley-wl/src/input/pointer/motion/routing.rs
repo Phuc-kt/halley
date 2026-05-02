@@ -171,7 +171,7 @@ pub(super) fn dispatch_pointer_motion(
             });
 
         let resize_preview = ps.resize;
-        let focus = if let Some(surface) = grabbed_layer_surface.clone() {
+        let mut focus = if let Some(surface) = grabbed_layer_surface.clone() {
             grabbed_layer_surface_focus(st, &surface)
         } else if let Some(surface) = locked_surface.clone() {
             Some((surface, pointer.current_location()))
@@ -186,6 +186,15 @@ pub(super) fn dispatch_pointer_motion(
                 resize_preview,
             )
         };
+
+        if locked_surface.is_none() {
+            if let Some((surf, _)) = focus.as_ref() {
+                if let Some(constrained) = crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(st, surf) {
+                    focus = Some((constrained, pointer.current_location()));
+                }
+            }
+        }
+
         desktop_hover = focus.is_none();
         hover_focus_blocked = focus.as_ref().is_some_and(|(surface, _)| {
             crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
@@ -193,9 +202,14 @@ pub(super) fn dispatch_pointer_motion(
         });
 
         if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
+            let relative_focus = constrained_surface_info
+                .as_ref()
+                .map(|(s, _)| (s.clone(), pointer.current_location()))
+                .or_else(|| focus.clone());
+
             pointer.relative_motion(
                 st,
-                focus.clone(),
+                relative_focus,
                 &RelativeMotionEvent {
                     delta: delta.into(),
                     delta_unaccel: delta_unaccel.into(),
@@ -205,11 +219,17 @@ pub(super) fn dispatch_pointer_motion(
         }
 
         if locked_surface.is_none() {
+            let is_constrained = focus.as_ref().is_some_and(|(s, _)| {
+                crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(st, s).is_some()
+            });
+
             let location = if focus.as_ref().is_some_and(|(surface, _)| {
                 crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
                     || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
             }) {
                 (routing.local_sx as f64, routing.local_sy as f64).into()
+            } else if is_constrained {
+                pointer.current_location()
             } else {
                 let cam_scale = st.camera_render_scale() as f64;
                 (

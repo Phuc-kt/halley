@@ -169,6 +169,12 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         .and_then(|pointer| pointer.current_focus())
         .is_some();
 
+    if let Some((_, locked)) = crate::compositor::interaction::pointer::active_constrained_pointer_surface(st) {
+        if locked {
+            return CursorImageStatus::Hidden;
+        }
+    }
+
     if st.input.interaction_state.cursor_hidden_by_typing {
         return CursorImageStatus::Hidden;
     }

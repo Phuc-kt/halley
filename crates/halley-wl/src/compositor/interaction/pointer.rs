@@ -124,13 +124,27 @@ pub(crate) fn activate_pointer_constraint_for_surface(st: &mut Halley, surface: 
     let Some(pointer) = st.platform.seat.get_pointer() else {
         return;
     };
-    with_pointer_constraint(surface, &pointer, |constraint| {
-        if let Some(constraint) = constraint
-            && !constraint.is_active()
-        {
-            constraint.activate();
+    let mut current = surface.clone();
+    loop {
+        let activated = with_pointer_constraint(&current, &pointer, |constraint| {
+            if let Some(constraint) = constraint
+                && !constraint.is_active()
+            {
+                constraint.activate();
+                true
+            } else {
+                false
+            }
+        });
+        if activated {
+            break;
         }
-    });
+        if let Some(parent) = get_parent(&current) {
+            current = parent;
+        } else {
+            break;
+        }
+    }
 }
 
 pub(crate) fn clear_pointer_focus(st: &mut Halley) {
@@ -222,9 +236,22 @@ pub(crate) fn apply_cursor_position_hint(
     pointer: &PointerHandle<Halley>,
     location: smithay::utils::Point<f64, smithay::utils::Logical>,
 ) {
-    let constraint_active = with_pointer_constraint(surface, pointer, |constraint| {
-        constraint.is_some_and(|constraint| constraint.is_active())
-    });
+    let mut constraint_active = false;
+    let mut current = surface.clone();
+    loop {
+        let active = with_pointer_constraint(&current, pointer, |constraint| {
+            constraint.is_some_and(|constraint| constraint.is_active())
+        });
+        if active {
+            constraint_active = true;
+            break;
+        }
+        if let Some(parent) = get_parent(&current) {
+            current = parent;
+        } else {
+            break;
+        }
+    }
     if !constraint_active {
         return;
     }
@@ -288,18 +315,29 @@ pub(crate) fn release_active_pointer_constraint(st: &mut Halley) -> bool {
     let Some(pointer) = st.platform.seat.get_pointer() else {
         return false;
     };
-    let Some(surface) = pointer.current_focus() else {
+    let Some(focus) = pointer.current_focus() else {
         return false;
     };
     let mut released = false;
-    with_pointer_constraint(&surface, &pointer, |constraint| {
-        if let Some(constraint) = constraint
-            && constraint.is_active()
-        {
-            constraint.deactivate();
-            released = true;
+    let mut current = focus;
+    loop {
+        with_pointer_constraint(&current, &pointer, |constraint| {
+            if let Some(constraint) = constraint
+                && constraint.is_active()
+            {
+                constraint.deactivate();
+                released = true;
+            }
+        });
+        if released {
+            break;
         }
-    });
+        if let Some(parent) = get_parent(&current) {
+            current = parent;
+        } else {
+            break;
+        }
+    }
     if released {
         clear_pointer_focus(st);
         st.input.interaction_state.reset_input_state_requested = true;
@@ -309,13 +347,41 @@ pub(crate) fn release_active_pointer_constraint(st: &mut Halley) -> bool {
 
 pub(crate) fn active_constrained_pointer_surface(st: &Halley) -> Option<(WlSurface, bool)> {
     let pointer = st.platform.seat.get_pointer()?;
-    let surface = pointer.current_focus()?;
-    let is_locked = with_pointer_constraint(&surface, &pointer, |constraint| {
-        let active = constraint
-            .as_deref()
-            .is_some_and(PointerConstraint::is_active);
-        let locked = matches!(constraint.as_deref(), Some(PointerConstraint::Locked(_)));
-        if active { Some(locked) } else { None }
-    })?;
-    Some((surface, is_locked))
+    let focus = pointer.current_focus()?;
+    let mut current = focus;
+    loop {
+        let res = with_pointer_constraint(&current, &pointer, |constraint| {
+            let active = constraint
+                .as_deref()
+                .is_some_and(PointerConstraint::is_active);
+            let locked = matches!(constraint.as_deref(), Some(PointerConstraint::Locked(_)));
+            if active { Some(locked) } else { None }
+        });
+        if let Some(locked) = res {
+            return Some((current, locked));
+        }
+        if let Some(parent) = get_parent(&current) {
+            current = parent;
+        } else {
+            break;
+        }
+    }
+    None
+}
+
+pub(crate) fn find_constrained_surface_in_hierarchy(st: &Halley, surface: &WlSurface) -> Option<WlSurface> {
+    let pointer = st.platform.seat.get_pointer()?;
+    let mut current = surface.clone();
+    loop {
+        let has_constraint = with_pointer_constraint(&current, &pointer, |c| c.is_some());
+        if has_constraint {
+            return Some(current);
+        }
+        if let Some(parent) = get_parent(&current) {
+            current = parent;
+        } else {
+            break;
+        }
+    }
+    None
 }

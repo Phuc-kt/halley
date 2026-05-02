@@ -618,14 +618,22 @@ pub(super) fn dispatch_pointer_button(
     let Some(pointer) = st.platform.seat.get_pointer() else {
         return;
     };
+    let constrained_surface_info =
+        crate::compositor::interaction::pointer::active_constrained_pointer_surface(st);
+    let locked_surface = constrained_surface_info
+        .as_ref()
+        .and_then(|(s, locked)| if *locked { Some(s.clone()) } else { None });
+
     let grabbed_layer_surface = st
         .input
         .interaction_state
         .grabbed_layer_surface
         .clone()
         .filter(|surface| crate::compositor::monitor::layer_shell::is_layer_surface(st, surface));
-    let focus = if let Some(surface) = grabbed_layer_surface {
+    let mut focus = if let Some(surface) = grabbed_layer_surface {
         grabbed_layer_surface_focus(st, &surface)
+    } else if let Some(surface) = locked_surface.clone() {
+        Some((surface, pointer.current_location()))
     } else {
         pointer_focus_for_screen(
             st,
@@ -637,6 +645,15 @@ pub(super) fn dispatch_pointer_button(
             resize_preview,
         )
     };
+
+    if locked_surface.is_none() {
+        if let Some((surf, _)) = focus.as_ref() {
+            if let Some(constrained) = crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(st, surf) {
+                focus = Some((constrained, pointer.current_location()));
+            }
+        }
+    }
+
     let motion_serial = SERIAL_COUNTER.next_serial();
     let button_serial = SERIAL_COUNTER.next_serial();
     crate::protocol::wayland::activation::note_input_serial(
@@ -644,24 +661,33 @@ pub(super) fn dispatch_pointer_button(
         button_serial,
         st.now_ms(Instant::now()),
     );
-    let location = if focus.as_ref().is_some_and(|(surface, _)| {
-        crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
-            || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
-    }) {
-        (frame.sx as f64, frame.sy as f64).into()
-    } else {
-        let cam_scale = st.camera_render_scale() as f64;
-        (frame.sx as f64 / cam_scale, frame.sy as f64 / cam_scale).into()
-    };
-    pointer.motion(
-        st,
-        focus,
-        &MotionEvent {
-            location,
-            serial: motion_serial,
-            time: now_millis_u32(),
-        },
-    );
+
+    if locked_surface.is_none() {
+        let is_constrained = focus.as_ref().is_some_and(|(s, _)| {
+            crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(st, s).is_some()
+        });
+
+        let location = if focus.as_ref().is_some_and(|(surface, _)| {
+            crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+                || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
+        }) {
+            (frame.sx as f64, frame.sy as f64).into()
+        } else if is_constrained {
+            pointer.current_location()
+        } else {
+            let cam_scale = st.camera_render_scale() as f64;
+            (frame.sx as f64 / cam_scale, frame.sy as f64 / cam_scale).into()
+        };
+        pointer.motion(
+            st,
+            focus,
+            &MotionEvent {
+                location,
+                serial: motion_serial,
+                time: now_millis_u32(),
+            },
+        );
+    }
     pointer.button(
         st,
         &ButtonEvent {
