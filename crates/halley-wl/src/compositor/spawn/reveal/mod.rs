@@ -186,6 +186,31 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             if needs_monitor_switch {
                 let _ = self.activate_monitor(prev_monitor.as_str());
             }
+
+            let _ = self.model.field.set_detached(next.node_id, false);
+            let _ = self
+                .model
+                .field
+                .set_decay_level(next.node_id, DecayLevel::Hot);
+            if let Some(intrinsic_size) = self.model.field.node(next.node_id).map(|n| n.intrinsic_size)
+            {
+                self.model
+                    .workspace_state
+                    .last_active_size
+                    .insert(next.node_id, intrinsic_size);
+            }
+            let duration_ms = self.runtime.tuning.window_open_duration_ms();
+            if self.runtime.tuning.window_open_animation_enabled() {
+                crate::compositor::workspace::state::mark_active_transition(
+                    &mut **self,
+                    next.node_id,
+                    now,
+                    duration_ms,
+                );
+            }
+            self.record_focus_trail_visit(next.node_id);
+            self.model.focus_state.suppress_trail_record_once = true;
+
             self.model.spawn_state.active_spawn_pan =
                 Some(crate::compositor::spawn::state::ActiveSpawnPan {
                     node_id: next.node_id,
@@ -205,6 +230,15 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
     }
 
     pub(crate) fn tick_pending_spawn_pan(&mut self, now: Instant, now_ms: u64) {
+        if let Some((id, at_ms)) = self.model.spawn_state.pending_pan_activate {
+            if now_ms >= at_ms {
+                self.model.spawn_state.pending_pan_activate = None;
+                if self.model.field.node(id).is_some() {
+                    self.set_interaction_focus(Some(id), 30_000, now);
+                }
+            }
+        }
+
         let Some(active) = self.model.spawn_state.active_spawn_pan else {
             self.maybe_start_pending_spawn_pan(now);
             return;
@@ -223,34 +257,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             return;
         }
 
-        let _ = self.model.field.set_detached(active.node_id, false);
-        let _ = self
-            .model
-            .field
-            .set_decay_level(active.node_id, DecayLevel::Hot);
-        let intrinsic_size = self
-            .model
-            .field
-            .node(active.node_id)
-            .map(|node| node.intrinsic_size);
-        if let Some(intrinsic_size) = intrinsic_size {
-            self.model
-                .workspace_state
-                .last_active_size
-                .insert(active.node_id, intrinsic_size);
-        }
-        let duration_ms = self.runtime.tuning.window_open_duration_ms();
-        if self.runtime.tuning.window_open_animation_enabled() {
-            crate::compositor::workspace::state::mark_active_transition(
-                &mut **self,
-                active.node_id,
-                now,
-                duration_ms,
-            );
-        }
-        self.record_focus_trail_visit(active.node_id);
-        self.model.focus_state.suppress_trail_record_once = true;
-        self.set_interaction_focus(Some(active.node_id), 30_000, now);
+        self.model.spawn_state.pending_pan_activate = Some((active.node_id, now_ms + 16));
         self.model.spawn_state.active_spawn_pan = None;
         self.maybe_start_pending_spawn_pan(now);
     }

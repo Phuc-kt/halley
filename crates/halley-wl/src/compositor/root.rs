@@ -308,6 +308,7 @@ impl Halley {
                     applied_window_rules: HashMap::new(),
                     pending_rule_rechecks: HashSet::new(),
                     pending_initial_reveal: HashSet::new(),
+                    pending_pan_activate: None,
                 },
                 field: Field::new(),
                 viewport: primary_viewport,
