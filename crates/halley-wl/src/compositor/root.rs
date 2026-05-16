@@ -193,6 +193,10 @@ impl Halley {
                 popup_manager: PopupManager::default(),
                 wlr_layer_shell_state: WlrLayerShellState::new::<Halley>(dh),
                 pointer_constraints_state: PointerConstraintsState::new::<Halley>(dh),
+                presentation_state: smithay::wayland::presentation::PresentationState::new::<Halley>(
+                    dh,
+                    <smithay::utils::Monotonic as smithay::utils::ClockSource>::ID as u32,
+                ),
                 relative_pointer_manager_state: RelativePointerManagerState::new::<Halley>(dh),
                 idle_notifier_state: IdleNotifierState::new(dh, loop_handle),
                 drm_syncobj_state: None,

@@ -1,12 +1,19 @@
 use std::collections::HashSet;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use halley_core::field::{NodeId, Vec2};
+use smithay::desktop::utils::{
+    OutputPresentationFeedback, take_presentation_feedback_surface_tree,
+};
 use smithay::desktop::{PopupKind, find_popup_root_surface};
+use smithay::output::Output;
+use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
+use smithay::utils::{Clock, Monotonic};
 use smithay::wayland::compositor::{
     SurfaceAttributes, TraversalAction, with_surface_tree_downward,
 };
+use smithay::wayland::presentation::Refresh;
 
 use crate::animation::AnimStyle;
 use crate::compositor::monitor::camera::camera_controller;
@@ -490,6 +497,75 @@ pub(crate) fn send_frame_callbacks_for_output(st: &mut Halley, output_name: &str
             send_frames_surface_tree(popup.wl_surface(), time_ms);
         }
     }
+}
+
+pub(crate) fn send_presentation_feedback_for_output(st: &Halley, output_name: &str) {
+    let Some(output) = st.model.monitor_state.outputs.get(output_name).cloned() else {
+        return;
+    };
+
+    let mut feedback = OutputPresentationFeedback::new(&output);
+    let presentation_time = Clock::<Monotonic>::new().now();
+    let refresh = refresh_for_output(&output);
+
+    for layer in st.platform.wlr_layer_shell_state.layer_surfaces() {
+        let surface = layer.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            take_presentation_feedback_surface_tree(
+                surface,
+                &mut feedback,
+                |_, _| Some(output.clone()),
+                |_, _| wp_presentation_feedback::Kind::empty(),
+            );
+        }
+    }
+
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let surface = top.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            take_presentation_feedback_surface_tree(
+                surface,
+                &mut feedback,
+                |_, _| Some(output.clone()),
+                |_, _| wp_presentation_feedback::Kind::empty(),
+            );
+        }
+    }
+
+    for popup in st.platform.xdg_shell_state.popup_surfaces() {
+        let popup_kind = PopupKind::from(popup.clone());
+        let Ok(root) = find_popup_root_surface(&popup_kind) else {
+            continue;
+        };
+        if surface_on_output(st, &root, output_name) {
+            take_presentation_feedback_surface_tree(
+                popup.wl_surface(),
+                &mut feedback,
+                |_, _| Some(output.clone()),
+                |_, _| wp_presentation_feedback::Kind::empty(),
+            );
+        }
+    }
+
+    feedback.presented(
+        presentation_time,
+        refresh,
+        0,
+        wp_presentation_feedback::Kind::Vsync,
+    );
+}
+
+fn refresh_for_output(output: &Output) -> Refresh {
+    output
+        .current_mode()
+        .map(|mode| mode.refresh)
+        .filter(|refresh_millihz| *refresh_millihz > 0)
+        .map(|refresh_millihz| {
+            Refresh::fixed(Duration::from_nanos(
+                1_000_000_000_000u64 / refresh_millihz as u64,
+            ))
+        })
+        .unwrap_or(Refresh::Unknown)
 }
 
 fn surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> bool {
