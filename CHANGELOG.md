@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Add `wp_presentation` support and send presentation feedback after TTY and winit frames so Wayland clients such as gamescope can receive frame timing instead of falling back to X11 behavior.
 - Add configurable Aperture placement for cursor-following, a fixed monitor, or every output, including per-output Aperture status IPC and CLI output.
 - Add `aperture-peek` styling for corner, rounded background, radius, and clock appearance, plus an `examples/aperture.rune` sample config.
 - Add user-pinned window/node/core support with default `mod+p`, `field.pins` badge styling, pinned Bearings visibility, and pin badge rendering from the bundled SVG asset.
@@ -21,6 +22,16 @@ All notable changes to this project will be documented in this file.
 - Rename the default explicit field-drag pointer action from `field-jump` to `pan-field`, keeping `field-jump` and `drag-pan` as config aliases for compatibility.
 
 ### Fixed
+- Scope viewport pan animations to the monitor that created them so quick pointer movement to another output cannot retarget an in-flight spawn or close-restore pan and move the wrong monitor.
+- Defer spawn-pan focus activation until the tick after a spawn reveal pan completes, while applying reveal state immediately so new windows are undetached, hot, transition-tracked, and recorded in focus history as soon as the reveal begins.
+- Fix cross-monitor spawn reveal pans in click-to-focus mode by creating the pan from the spawn monitor's viewport center instead of whichever monitor was current when the reveal started.
+- Add built-in handling for Steam's startup login window so it opens floating, centered, and allowed to overlap without applying the same rule to the main Steam client; defer Steam rule rechecks until late-arriving titles are available.
+- Treat browser portal "Save Image" dialogs like other portal save dialogs so they open with the expected floating dialog behavior.
+- Route clicks to the topmost nested popup, including layer-surface popups, so nested Firefox menus receive clicks before their parent menu items underneath.
+- Stabilize locked and confined pointer constraints for fullscreen games by routing locked constraints through relative motion only, honoring confinement regions, redirecting focus to constrained ancestor or descendant surfaces, and preventing desktop hover/focus updates from also consuming constrained motion.
+- Keep global monitor and viewport state synchronized with pointer movement across outputs so hit-testing, focus, buttons, and axis events use the monitor under the cursor before a click or focus change occurs.
+- Improve fullscreen game cursor handling by applying cursor position hints internally, accounting for cursor-surface buffer deltas when computing hotspots, and falling back cleanly when client cursor surfaces are destroyed.
+- Allow direct scanout with fullscreen client cursor surfaces or hidden 1x1 layer placeholders while still blocking scanout for real visible top and overlay layers.
 - Uncollapse a noded surface before maximizing it, so maximize opens the window instead of resizing the collapsed node marker.
 - Make close-focused target the currently focused item before surface history, silently closing every member of a focused collapsed cluster core without briefly revealing survivors or using stale cross-monitor fallback closes.
 - Keep running with built-in defaults when startup config loading fails while surfacing the preserved diagnostic in the error overlay instead of silently discarding the failure.
