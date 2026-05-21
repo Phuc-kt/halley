@@ -296,6 +296,7 @@ impl Halley {
                 fullscreen_state: FullscreenState {
                     fullscreen_active_node: HashMap::new(),
                     fullscreen_suspended_node: HashMap::new(),
+                    fullscreen_soft_suspended_node: HashMap::new(),
                     fullscreen_restore: HashMap::new(),
                     fullscreen_motion: HashMap::new(),
                     fullscreen_scale_anim: HashMap::new(),
@@ -1311,6 +1312,11 @@ impl Halley {
 
     pub(crate) fn suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
         super::fullscreen::system::fullscreen_controller(self).suspend_xdg_fullscreen(node_id, now)
+    }
+
+    pub(crate) fn soft_suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
+        super::fullscreen::system::fullscreen_controller(self)
+            .soft_suspend_xdg_fullscreen(node_id, now)
     }
 
     pub(crate) fn enter_xdg_fullscreen(

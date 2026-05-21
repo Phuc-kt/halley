@@ -185,13 +185,20 @@ fn maybe_apply_pending_initial_window_rule(
     {
         return;
     }
-    let monitor = st
+    let mut monitor = st
         .model
         .monitor_state
         .node_monitor
         .get(&node_id)
         .cloned()
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    if intent.matched_rule {
+        let target_monitor = st.spawn_target_monitor_for_intent(&intent);
+        if target_monitor != monitor {
+            st.assign_node_to_monitor(node_id, target_monitor.as_str());
+            monitor = target_monitor;
+        }
+    }
     let active_cluster = st.active_cluster_workspace_for_monitor(monitor.as_str());
     let mut cluster_local = st
         .model
@@ -258,7 +265,10 @@ fn maybe_apply_pending_initial_window_rule(
     if !cluster_local
         && let Some(size) = st.model.field.node(node_id).map(|node| node.intrinsic_size)
     {
-        let (_, pos, _) = st.pick_spawn_position_with_intent(size, &intent);
+        let (picked_monitor, pos, _) = st.pick_spawn_position_with_intent(size, &intent);
+        if intent.matched_rule && picked_monitor != monitor {
+            st.assign_node_to_monitor(node_id, picked_monitor.as_str());
+        }
         let _ = st.model.field.carry(node_id, pos);
     }
 
@@ -540,6 +550,7 @@ pub(super) fn ensure_node_for_surface_impl(
         let id = st.model.field.spawn_surface(label.to_string(), pos, size);
         (monitor, id, false)
     };
+    st.model.surface_to_node.insert(key, id);
     st.assign_node_to_monitor(id, monitor.as_str());
     if effective_intent.matched_rule {
         st.model
@@ -559,7 +570,6 @@ pub(super) fn ensure_node_for_surface_impl(
         let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
     }
 
-    st.model.surface_to_node.insert(key, id);
     st.ui.render_state.cache.zoom_nominal_size.insert(id, size);
     st.model.workspace_state.last_active_size.insert(id, size);
     let joined_active_cluster = spawned_in_active_cluster;

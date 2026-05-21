@@ -45,10 +45,6 @@ impl XdgShellHandler for Halley {
     fn new_toplevel(&mut self, toplevel: ToplevelSurface) {
         let intent = spawn::rules::resolve_initial_window_intent(self, &toplevel);
         let initial_size = super::handlers::initial_toplevel_size(self, &toplevel, &intent);
-
-        // Resolve the target monitor before configuring, using the same placement
-        // logic as pick_spawn_position_with_intent so the window receives bounds
-        // for the monitor it will actually land on — not the currently focused one.
         let is_default = intent.rule == ResolvedInitialWindowRule::default()
             && intent.parent_node.is_none()
             && !intent.prefer_app_intent;
