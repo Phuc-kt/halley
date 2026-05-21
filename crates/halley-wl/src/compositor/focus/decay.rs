@@ -250,9 +250,9 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
             || self
                 .model
                 .workspace_state
-                .active_transition_until_ms
+                .active_transitions
                 .values()
-                .any(|&until_ms| until_ms > now_ms)
+                .any(|transition| transition.is_active(now_ms))
     }
 
     pub fn apply_single_surface_decay_policy(
@@ -352,7 +352,7 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
             || self
                 .model
                 .workspace_state
-                .active_transition_until_ms
+                .active_transitions
                 .contains_key(&id)
     }
 }
@@ -556,11 +556,13 @@ mod tests {
                 .field
                 .set_state(id, halley_core::field::NodeState::Active);
         }
-        state
-            .model
-            .workspace_state
-            .active_transition_until_ms
-            .insert(second, u64::MAX);
+        state.model.workspace_state.active_transitions.insert(
+            second,
+            crate::compositor::workspace::state::ActiveTransition {
+                started_at_ms: 0,
+                duration_ms: u64::MAX,
+            },
+        );
 
         state.enforce_single_primary_active_unit();
 

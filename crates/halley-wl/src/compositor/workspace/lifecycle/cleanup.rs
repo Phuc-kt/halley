@@ -218,10 +218,7 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
             {
                 st.model.spawn_state.pending_pan_activate = None;
             }
-            st.model
-                .workspace_state
-                .active_transition_until_ms
-                .remove(&id);
+            st.model.workspace_state.active_transitions.remove(&id);
             st.model
                 .workspace_state
                 .primary_promote_cooldown_until_ms
@@ -407,10 +404,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         st.model.spawn_state.applied_window_rules.remove(&id);
         st.model.spawn_state.pending_rule_rechecks.remove(&id);
         st.model.spawn_state.pending_initial_reveal.remove(&id);
-        st.model
-            .workspace_state
-            .active_transition_until_ms
-            .remove(&id);
+        st.model.workspace_state.active_transitions.remove(&id);
         st.model
             .workspace_state
             .primary_promote_cooldown_until_ms

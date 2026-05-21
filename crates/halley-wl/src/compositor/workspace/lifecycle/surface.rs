@@ -207,8 +207,7 @@ fn maybe_apply_pending_initial_window_rule(
         .is_some_and(|cid| active_cluster == Some(cid));
     if st.cluster_bloom_for_monitor(monitor.as_str()).is_some() {
         st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
-        st.model.spawn_state.pending_initial_reveal.remove(&node_id);
-        st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
+        let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, intent.is_transient, now);
         return;
     }
 
@@ -283,8 +282,56 @@ fn maybe_apply_pending_initial_window_rule(
         st.model.spawn_state.applied_window_rules.remove(&node_id);
     }
     st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
+    if !st
+        .model
+        .spawn_state
+        .pending_initial_reveal
+        .contains(&node_id)
+    {
+        st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
+    } else {
+        let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, intent.is_transient, now);
+    }
+}
+
+pub(super) fn reveal_pending_initial_toplevel_if_ready(
+    st: &mut Halley,
+    node_id: NodeId,
+    is_transient: bool,
+    now: Instant,
+) -> bool {
+    if !st
+        .model
+        .spawn_state
+        .pending_initial_reveal
+        .contains(&node_id)
+        || st
+            .model
+            .spawn_state
+            .pending_rule_rechecks
+            .contains(&node_id)
+        || !st
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .contains_key(&node_id)
+    {
+        return false;
+    }
+
     st.model.spawn_state.pending_initial_reveal.remove(&node_id);
-    st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
+    st.reveal_new_toplevel_node(node_id, is_transient, now);
+    if !st
+        .model
+        .field
+        .node(node_id)
+        .is_some_and(|node| node.visibility.has(Visibility::DETACHED))
+    {
+        st.resolve_surface_overlap();
+    }
+    st.request_maintenance();
+    true
 }
 
 pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
@@ -410,6 +457,8 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                 }
             }
         }
+
+        let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, false, now);
     }
 }
 
