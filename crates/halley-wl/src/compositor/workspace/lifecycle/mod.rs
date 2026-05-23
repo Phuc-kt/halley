@@ -419,6 +419,7 @@ mod tests {
                 }),
                 chosen_pos: predicted_pos,
                 dir: Some(Vec2 { x: 0.0, y: -1.0 }),
+                preserve_chosen_pos: false,
                 overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
             },
         );
@@ -522,6 +523,7 @@ mod tests {
                 }),
                 chosen_pos: predicted_pos,
                 dir: Some(Vec2 { x: 0.0, y: -1.0 }),
+                preserve_chosen_pos: false,
                 overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
             },
         );
@@ -612,6 +614,7 @@ mod tests {
                     }),
                     chosen_pos,
                     dir: Some(dir),
+                    preserve_chosen_pos: false,
                     overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
                 },
             );

@@ -78,6 +78,7 @@ pub(crate) struct InitialSpawnPlacement {
     pub(crate) anchor_ext: Option<SpawnPlacementExtents>,
     pub(crate) chosen_pos: Vec2,
     pub(crate) dir: Option<Vec2>,
+    pub(crate) preserve_chosen_pos: bool,
     pub(crate) overlap_policy: InitialWindowOverlapPolicy,
 }
 

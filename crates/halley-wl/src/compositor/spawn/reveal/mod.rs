@@ -673,6 +673,121 @@ mod tests {
     }
 
     #[test]
+    fn spawn_star_expands_outward_round_robin_after_first_ring_is_full() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        {
+            let monitor = state.model.monitor_state.current_monitor.clone();
+            let spawn = state.spawn_monitor_state_mut(monitor.as_str());
+            spawn.spawn_anchor_mode = crate::compositor::spawn::state::SpawnAnchorMode::View;
+            spawn.spawn_view_anchor = Vec2 { x: 0.0, y: 0.0 };
+        }
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        for pos in state.star_candidate_offsets(size).into_iter().take(5) {
+            let id = state.model.field.spawn_surface("blocker", pos, size);
+            state.assign_node_to_current_monitor(id);
+        }
+        let offsets = state.star_candidate_offsets(size);
+
+        for expected in offsets.into_iter().skip(5).take(4) {
+            let (_, pos, _) = state.pick_spawn_position(size);
+            assert_eq!(pos, expected);
+            let id = state.model.field.spawn_surface("spawned", pos, size);
+            state.assign_node_to_current_monitor(id);
+            state.set_interaction_focus(Some(id), 30_000, Instant::now());
+        }
+    }
+
+    #[test]
+    fn auto_focused_spawn_does_not_move_patch_anchor() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let first = state.pick_spawn_position(size).1;
+        let first_id = state.model.field.spawn_surface("first", first, size);
+        state.assign_node_to_current_monitor(first_id);
+        state.set_interaction_focus(Some(first_id), 30_000, Instant::now());
+
+        let second = state.pick_spawn_position(size).1;
+        let second_id = state.model.field.spawn_surface("second", second, size);
+        state.assign_node_to_current_monitor(second_id);
+        state.set_interaction_focus(Some(second_id), 30_000, Instant::now());
+        let third = state.pick_spawn_position(size).1;
+        let offsets = state.star_candidate_offsets(size);
+
+        assert_eq!(first, offsets[0]);
+        assert_eq!(second, offsets[1]);
+        assert_eq!(third, offsets[2]);
+    }
+
+    #[test]
+    fn live_sequential_spawns_return_to_left_arm_after_right2() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 3200.0,
+            y: 2400.0,
+        };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let expected = state.star_candidate_offsets(size);
+
+        for (index, expected_pos) in expected.iter().copied().take(7).enumerate() {
+            let (_, pos, _) = state.pick_spawn_position(size);
+            assert_eq!(pos, expected_pos, "spawn index {index}");
+            let id = state.model.field.spawn_surface("spawned", pos, size);
+            state.assign_node_to_current_monitor(id);
+            state.set_interaction_focus(Some(id), 30_000, Instant::now());
+        }
+    }
+
+    #[test]
+    fn off_center_focused_window_does_not_anchor_default_spawn() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.focus_ring_rx = 100.0;
+        tuning.focus_ring_ry = 100.0;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let focused = state.model.field.spawn_surface(
+            "focused",
+            Vec2 { x: 400.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_current_monitor(focused);
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+
+        let (_, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
+
+        assert_eq!(pos, Vec2 { x: 0.0, y: 0.0 });
+    }
+
+    #[test]
     fn focused_monitor_drives_spawn_even_when_current_monitor_differs() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![
@@ -723,7 +838,7 @@ mod tests {
             .right_spawn_candidate_for_focus(focused, Vec2 { x: 120.0, y: 90.0 })
             .expect("right spawn candidate");
         assert_eq!(monitor, "right");
-        assert_eq!(pos, expected);
+        assert!((pos.x - expected.x).abs() < 0.5 && (pos.y - expected.y).abs() < 0.5);
     }
 
     #[test]
@@ -855,7 +970,7 @@ mod tests {
             .right_spawn_candidate_for_focus(latest, Vec2 { x: 120.0, y: 90.0 })
             .expect("right spawn candidate");
         assert_eq!(monitor, "right");
-        assert_eq!(pos, expected);
+        assert!((pos.x - expected.x).abs() < 0.5 && (pos.y - expected.y).abs() < 0.5);
     }
 
     #[test]
@@ -947,7 +1062,7 @@ mod tests {
     }
 
     #[test]
-    fn focus_mode_keeps_monitor_local_patch_after_auto_focusing_new_spawn() {
+    fn focus_mode_keeps_stable_patch_after_auto_focusing_new_spawn() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
@@ -991,8 +1106,8 @@ mod tests {
             .right_spawn_candidate_for_focus(anchor, size)
             .expect("right spawn candidate");
         let second_expected = state
-            .right_spawn_candidate_for_focus(first_id, size)
-            .expect("right spawn candidate");
+            .spawn_candidate_for_focus_dir(anchor, size, Vec2 { x: -1.0, y: 0.0 })
+            .expect("left spawn candidate");
 
         assert_eq!(first, first_expected);
         assert_eq!(second, second_expected);
@@ -1235,7 +1350,7 @@ mod tests {
     }
 
     #[test]
-    fn shorter_secondary_keeps_building_to_the_right_offscreen() {
+    fn shorter_secondary_uses_stable_patch_ring_order() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![
             halley_config::ViewportOutputConfig {
@@ -1281,12 +1396,7 @@ mod tests {
         state.set_interaction_focus(Some(second_id), 30_000, Instant::now());
         let third = state.pick_spawn_position(size).1;
 
-        let second_expected = state
-            .right_spawn_candidate_for_focus(first_id, size)
-            .expect("right spawn candidate");
-        let third_expected = state
-            .right_spawn_candidate_for_focus(second_id, size)
-            .expect("right spawn candidate");
+        let expected = state.star_candidate_offsets(size);
         assert_eq!(
             first,
             Vec2 {
@@ -1294,8 +1404,20 @@ mod tests {
                 y: 600.0
             }
         );
-        assert_eq!(second, second_expected);
-        assert_eq!(third, third_expected);
+        assert_eq!(
+            second,
+            Vec2 {
+                x: 3520.0 + expected[1].x,
+                y: 600.0
+            }
+        );
+        assert_eq!(
+            third,
+            Vec2 {
+                x: 3520.0 + expected[2].x,
+                y: 600.0
+            }
+        );
     }
 
     #[test]
@@ -1323,10 +1445,6 @@ mod tests {
         let up = state
             .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: 0.0, y: -1.0 })
             .expect("up");
-        let down = state
-            .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: 0.0, y: 1.0 })
-            .expect("down");
-
         let right_id = state.model.field.spawn_surface("right", right, size);
         let left_id = state.model.field.spawn_surface("left", left, size);
         let up_id = state.model.field.spawn_surface("up", up, size);
@@ -1335,7 +1453,7 @@ mod tests {
         state.assign_node_to_current_monitor(up_id);
 
         let chosen = state.pick_spawn_position(size).1;
-        assert_eq!(chosen, down);
+        assert_eq!(chosen, state.star_candidate_offsets(size)[4]);
     }
 
     #[test]
@@ -1381,15 +1499,8 @@ mod tests {
             .fold(f32::INFINITY, f32::min);
         let expected_y = row_top - (state.non_overlap_gap_world() * 2.0 + 4.0) - candidate_bottom;
 
-        let (_, pos, _) = state.pick_spawn_position(size);
-
         assert_eq!(focused_up.x, 0.0);
         assert!((focused_up.y - expected_y).abs() < 0.5);
-        assert_eq!(pos.x, focused_up.x);
-        assert!(
-            (pos.y - expected_y).abs() < 0.5,
-            "pos={pos:?} expected_y={expected_y}"
-        );
     }
 
     #[test]
@@ -1457,15 +1568,8 @@ mod tests {
             .expect("focused down");
         let expected_y = row_bottom + (state.non_overlap_gap_world() * 2.0 + 4.0) + candidate_top;
 
-        let (_, pos, _) = state.pick_spawn_position(size);
-
         assert_eq!(focused_down.x, 0.0);
         assert!((focused_down.y - expected_y).abs() < 0.5);
-        assert_eq!(pos.x, focused_down.x);
-        assert!(
-            (pos.y - expected_y).abs() < 0.5,
-            "pos={pos:?} expected_y={expected_y}"
-        );
     }
 
     #[test]
@@ -1487,27 +1591,16 @@ mod tests {
             spawn.spawn_view_anchor = Vec2 { x: 0.0, y: 0.0 };
         }
 
-        let row_size = Vec2 { x: 120.0, y: 300.0 };
         let size = Vec2 { x: 120.0, y: 90.0 };
-        let anchor = state
-            .model
-            .field
-            .spawn_surface("anchor", Vec2 { x: 0.0, y: 0.0 }, row_size);
-        state.assign_node_to_current_monitor(anchor);
-        for dir in [Vec2 { x: 1.0, y: 0.0 }, Vec2 { x: -1.0, y: 0.0 }] {
-            let pos = state
-                .spawn_candidate_for_focus_dir(anchor, size, dir)
-                .expect("side candidate");
-            let id = state.model.field.spawn_surface("side", pos, size);
+        let offsets = state.star_candidate_offsets(size);
+        for pos in offsets.iter().copied().take(3) {
+            let id = state.model.field.spawn_surface("blocker", pos, size);
             state.assign_node_to_current_monitor(id);
         }
-        let expected = state
-            .spawn_candidate_for_focus_dir(anchor, size, Vec2 { x: 0.0, y: -1.0 })
-            .expect("up candidate");
 
         let (_, pos, _) = state.pick_spawn_position(size);
 
-        assert_eq!(pos, expected);
+        assert_eq!(pos, offsets[3]);
     }
 
     #[test]
@@ -1529,31 +1622,16 @@ mod tests {
             spawn.spawn_view_anchor = Vec2 { x: 0.0, y: 0.0 };
         }
 
-        let row_size = Vec2 { x: 120.0, y: 300.0 };
         let size = Vec2 { x: 120.0, y: 90.0 };
-        let anchor = state
-            .model
-            .field
-            .spawn_surface("anchor", Vec2 { x: 0.0, y: 0.0 }, row_size);
-        state.assign_node_to_current_monitor(anchor);
-        for dir in [
-            Vec2 { x: 1.0, y: 0.0 },
-            Vec2 { x: -1.0, y: 0.0 },
-            Vec2 { x: 0.0, y: -1.0 },
-        ] {
-            let pos = state
-                .spawn_candidate_for_focus_dir(anchor, size, dir)
-                .expect("blocker candidate");
+        let offsets = state.star_candidate_offsets(size);
+        for pos in offsets.iter().copied().take(4) {
             let id = state.model.field.spawn_surface("blocker", pos, size);
             state.assign_node_to_current_monitor(id);
         }
-        let expected = state
-            .spawn_candidate_for_focus_dir(anchor, size, Vec2 { x: 0.0, y: 1.0 })
-            .expect("down candidate");
 
         let (_, pos, _) = state.pick_spawn_position(size);
 
-        assert_eq!(pos, expected);
+        assert_eq!(pos, offsets[4]);
     }
 
     #[test]
