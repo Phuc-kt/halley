@@ -34,6 +34,10 @@ impl TtyRedrawRequests {
 pub(crate) trait BackendView {
     fn window_size_i32(&self) -> (i32, i32);
     fn request_redraw(&self);
+
+    fn request_cursor_redraw(&self) {
+        self.request_redraw();
+    }
 }
 
 pub(crate) trait RenderBackend: BackendView {

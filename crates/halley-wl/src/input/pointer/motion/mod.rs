@@ -455,7 +455,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
 
     focus::apply_hover_focus_mode(st, hover_hit, hover_focus_blocked, now);
 
-    if next_hover != ps.hover_node {
+    let hover_changed = next_hover != ps.hover_node;
+    if hover_changed {
         ps.hover_started_at = next_hover.map(|_| now);
     } else if next_hover.is_none() {
         ps.hover_started_at = None;
@@ -494,5 +495,15 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
     }
 
-    ctx.backend.request_redraw();
+    if !hover_changed
+        && ps.drag.is_none()
+        && ps.resize.is_none()
+        && !ps.panning
+        && st.input.interaction_state.pending_core_hover.is_none()
+        && st.input.interaction_state.overlay_hover_target.is_none()
+    {
+        ctx.backend.request_cursor_redraw();
+    } else {
+        ctx.backend.request_redraw();
+    }
 }
