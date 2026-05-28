@@ -121,7 +121,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
 
     st.activate_monitor(routing.monitor.as_str());
 
-    let (desktop_hover, hover_focus_blocked) = {
+    let (_, hover_focus_blocked) = {
         let ps = ctx.pointer_state.borrow();
         match routing::dispatch_pointer_motion(
             st,
@@ -490,8 +490,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     if ps.drag.is_none()
         && ps.resize.is_none()
         && !ps.panning
-        && desktop_hover
         && st.input.interaction_state.overlay_hover_target.is_none()
+        && st.input.interaction_state.pending_core_hover.is_none()
     {
         crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
     }

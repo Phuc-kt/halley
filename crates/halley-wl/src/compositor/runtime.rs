@@ -412,6 +412,19 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         let now_ms = now.duration_since(self.runtime.started_at).as_millis() as u64;
         crate::protocol::wayland::activation::prune_expired(self, now, now_ms);
         let _ = self.recent_top_node_active(now);
+        let pointer_contents_changed =
+            crate::compositor::interaction::pointer::update_pointer_contents_at_last_screen(
+                self, None, now,
+            );
+        if pointer_contents_changed {
+            if let Some((sx, sy)) = self.input.interaction_state.last_pointer_screen_global
+                && let Some(output_name) = self.monitor_for_screen(sx, sy)
+            {
+                self.request_tty_redraw_for_monitor(output_name.as_str());
+            } else {
+                self.runtime.tty_redraw_all = true;
+            }
+        }
         if let Some(pending) = self.input.interaction_state.pending_core_click.clone()
             && now_ms >= pending.deadline_ms
         {

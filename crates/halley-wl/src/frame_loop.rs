@@ -4,13 +4,14 @@ use std::time::{Duration, Instant};
 
 use halley_core::field::{NodeId, Vec2};
 use smithay::desktop::utils::{
-    OutputPresentationFeedback, take_presentation_feedback_surface_tree,
+    OutputPresentationFeedback, bbox_from_surface_tree, take_presentation_feedback_surface_tree,
 };
 use smithay::desktop::{PopupKind, find_popup_root_surface};
+use smithay::input::pointer::CursorImageStatus;
 use smithay::output::Output;
 use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
-use smithay::utils::{Clock, Monotonic};
+use smithay::utils::{Clock, IsAlive, Logical, Monotonic, Point, Rectangle};
 use smithay::wayland::compositor::{
     SurfaceAttributes, SurfaceData, TraversalAction, with_surface_tree_downward,
 };
@@ -498,6 +499,11 @@ pub(crate) fn send_frame_callbacks(st: &mut Halley, now: Instant) {
     for popup in st.platform.xdg_shell_state.popup_surfaces() {
         send_frames_surface_tree(popup.wl_surface(), time_ms);
     }
+    if let CursorImageStatus::Surface(surface) = st.platform.cursor_manager.cursor_image()
+        && surface.alive()
+    {
+        send_frames_surface_tree(surface, time_ms);
+    }
 }
 
 pub(crate) fn send_frame_callbacks_for_output(st: &mut Halley, output_name: &str, now: Instant) {
@@ -527,6 +533,13 @@ pub(crate) fn send_frame_callbacks_for_output(st: &mut Halley, output_name: &str
         if surface_on_output(st, &root, output_name) {
             send_frames_surface_tree_for_output(popup.wl_surface(), time_ms, output_name, sequence);
         }
+    }
+
+    if let CursorImageStatus::Surface(surface) = st.platform.cursor_manager.cursor_image()
+        && surface.alive()
+        && cursor_surface_on_output(st, surface, output_name)
+    {
+        send_frames_surface_tree_for_output(surface, time_ms, output_name, sequence);
     }
 }
 
@@ -578,6 +591,18 @@ pub(crate) fn send_presentation_feedback_for_output(st: &Halley, output_name: &s
         }
     }
 
+    if let CursorImageStatus::Surface(surface) = st.platform.cursor_manager.cursor_image()
+        && surface.alive()
+        && cursor_surface_on_output(st, surface, output_name)
+    {
+        take_presentation_feedback_surface_tree(
+            surface,
+            &mut feedback,
+            |_, _| Some(output.clone()),
+            |_, _| wp_presentation_feedback::Kind::empty(),
+        );
+    }
+
     feedback.presented(
         presentation_time,
         refresh,
@@ -614,6 +639,47 @@ fn surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> boo
         .layer_surface_monitor
         .get(&surface.id())
         .is_some_and(|monitor| monitor == output_name)
+}
+
+fn cursor_surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> bool {
+    let Some((sx, sy)) = cursor_global_position(st) else {
+        return false;
+    };
+    let Some(monitor) = st.model.monitor_state.monitors.get(output_name) else {
+        return false;
+    };
+
+    let (hotspot_x, hotspot_y) = crate::render::cursor_surface_hotspot(surface);
+    let surface_pos: Point<i32, Logical> =
+        (sx.round() as i32 - hotspot_x, sy.round() as i32 - hotspot_y).into();
+    let bbox = bbox_from_surface_tree(surface, surface_pos);
+    let output_geo = Rectangle::new(
+        (monitor.offset_x, monitor.offset_y).into(),
+        (monitor.width, monitor.height).into(),
+    );
+    output_geo.overlaps(bbox)
+}
+
+fn cursor_global_position(st: &Halley) -> Option<(f32, f32)> {
+    if let Some(pos) = st.input.interaction_state.last_pointer_screen_global {
+        return Some(pos);
+    }
+
+    let pointer = st.platform.seat.get_pointer()?;
+    let location = pointer.current_location();
+    let cam_scale = st.camera_render_scale().max(0.001) as f64;
+    let monitor = st.model.monitor_state.current_monitor.as_str();
+    let (offset_x, offset_y) = st
+        .model
+        .monitor_state
+        .monitors
+        .get(monitor)
+        .map(|space| (space.offset_x as f32, space.offset_y as f32))
+        .unwrap_or((0.0, 0.0));
+    Some((
+        offset_x + (location.x * cam_scale) as f32,
+        offset_y + (location.y * cam_scale) as f32,
+    ))
 }
 
 fn send_frames_surface_tree(

@@ -11,7 +11,7 @@ use halley_core::viewport::Viewport;
 use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
-    input::{SeatState, pointer::CursorImageStatus},
+    input::SeatState,
     reexports::wayland_server::{DisplayHandle, backend::ObjectId},
     wayland::{
         compositor::CompositorState,
@@ -217,9 +217,7 @@ impl Halley {
                     _,
                 >(dh, |_| true),
                 seat,
-                cursor_image_status: CursorImageStatus::Named(
-                    smithay::input::pointer::CursorIcon::Default,
-                ),
+                cursor_manager: crate::render::CursorManager::default(),
                 dmabuf_importer: None,
                 dmabuf_output_feedbacks: HashMap::new(),
             },
@@ -353,6 +351,7 @@ impl Halley {
                     reset_input_state_requested: false,
                     pending_pointer_screen_hint: None,
                     last_pointer_screen_global: None,
+                    pointer_contents: Default::default(),
                     suppress_layer_shell_configure: false,
                     dpms_just_woke: false,
                     resize_active: None,
