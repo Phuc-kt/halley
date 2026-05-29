@@ -48,6 +48,7 @@ pub(crate) struct AppliedInitialWindowRule {
     pub(crate) cluster_participation: InitialWindowClusterParticipation,
     pub(crate) parent_node: Option<NodeId>,
     pub(crate) suppress_reveal_pan: bool,
+    pub(crate) builtin_rule: Option<super::rules::BuiltinInitialWindowRule>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -60,6 +61,32 @@ pub(crate) enum SpawnAnchorMode {
 pub(crate) struct SpawnFocusOverride {
     pub(crate) pos: Vec2,
     pub(crate) size: Vec2,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SpawnPlacementExtents {
+    pub(crate) left: f32,
+    pub(crate) right: f32,
+    pub(crate) top: f32,
+    pub(crate) bottom: f32,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct InitialSpawnPlacement {
+    pub(crate) monitor: String,
+    pub(crate) anchor_node: Option<NodeId>,
+    pub(crate) anchor_pos: Vec2,
+    pub(crate) anchor_ext: Option<SpawnPlacementExtents>,
+    pub(crate) chosen_pos: Vec2,
+    pub(crate) dir: Option<Vec2>,
+    pub(crate) preserve_chosen_pos: bool,
+    pub(crate) overlap_policy: InitialWindowOverlapPolicy,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct InitialSpawnAuthority {
+    pub(crate) anchor_node: NodeId,
+    pub(crate) until_ms: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -98,6 +125,9 @@ pub(crate) struct SpawnState {
     pub(crate) applied_window_rules: HashMap<NodeId, AppliedInitialWindowRule>,
     pub(crate) pending_rule_rechecks: HashSet<NodeId>,
     pub(crate) pending_initial_reveal: HashSet<NodeId>,
+    pub(crate) pending_initial_spawn_placement: Option<InitialSpawnPlacement>,
+    pub(crate) initial_spawn_placements: HashMap<NodeId, InitialSpawnPlacement>,
+    pub(crate) initial_spawn_authority: HashMap<NodeId, InitialSpawnAuthority>,
     pub(crate) pending_pan_activate: Option<(NodeId, u64)>,
 }
 
@@ -341,6 +371,7 @@ mod tests {
                 cluster_participation: InitialWindowClusterParticipation::Float,
                 parent_node: None,
                 suppress_reveal_pan: true,
+                builtin_rule: None,
             },
         );
 

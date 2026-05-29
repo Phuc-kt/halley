@@ -159,7 +159,46 @@ pub(super) fn refresh_node_identity_for_surface(
         }
     }
 
-    maybe_apply_pending_initial_window_rule(st, node_id, &root_surface, Instant::now());
+    let now = Instant::now();
+    maybe_apply_pending_initial_window_rule(st, node_id, &root_surface, now);
+    expire_stale_steam_startup_rule(st, node_id, &root_surface, now);
+}
+
+fn expire_stale_steam_startup_rule(
+    st: &mut Halley,
+    node_id: NodeId,
+    root_surface: &WlSurface,
+    now: Instant,
+) {
+    let had_steam_startup_rule = st
+        .model
+        .spawn_state
+        .applied_window_rules
+        .get(&node_id)
+        .is_some_and(|rule| {
+            rule.builtin_rule
+                == Some(crate::compositor::spawn::rules::BuiltinInitialWindowRule::SteamStartup)
+        });
+    if !had_steam_startup_rule {
+        return;
+    }
+
+    let intent = crate::compositor::spawn::rules::resolve_initial_window_intent_for_surface(
+        st,
+        root_surface,
+    );
+    if intent.builtin_rule
+        == Some(crate::compositor::spawn::rules::BuiltinInitialWindowRule::SteamStartup)
+    {
+        return;
+    }
+
+    st.model.spawn_state.applied_window_rules.remove(&node_id);
+    st.resolve_surface_overlap();
+    let _ = crate::compositor::interaction::pointer::refresh_pointer_focus_at_last_screen(
+        st, None, now,
+    );
+    st.request_maintenance();
 }
 
 fn maybe_apply_pending_initial_window_rule(
@@ -269,6 +308,13 @@ fn maybe_apply_pending_initial_window_rule(
             st.assign_node_to_monitor(node_id, picked_monitor.as_str());
         }
         let _ = st.model.field.carry(node_id, pos);
+        if let Some(record) = st.model.spawn_state.pending_initial_spawn_placement.take() {
+            activate_initial_spawn_authority(st, node_id, &record, now);
+            st.model
+                .spawn_state
+                .initial_spawn_placements
+                .insert(node_id, record);
+        }
     }
 
     st.set_recent_top_node(node_id, now + std::time::Duration::from_millis(1200));
@@ -320,6 +366,15 @@ pub(super) fn reveal_pending_initial_toplevel_if_ready(
         return false;
     }
 
+    let finalized = st
+        .model
+        .field
+        .node(node_id)
+        .map(|node| node.intrinsic_size)
+        .is_some_and(|size| st.finalize_initial_spawn_position(node_id, size));
+    if !finalized && let Some(pos) = st.model.field.node(node_id).map(|node| node.pos) {
+        let _ = st.carry_surface_non_overlap(node_id, pos, true);
+    }
     st.model.spawn_state.pending_initial_reveal.remove(&node_id);
     st.reveal_new_toplevel_node(node_id, is_transient, now);
     if !st
@@ -327,11 +382,49 @@ pub(super) fn reveal_pending_initial_toplevel_if_ready(
         .field
         .node(node_id)
         .is_some_and(|node| node.visibility.has(Visibility::DETACHED))
+        && !finalized
     {
         st.resolve_surface_overlap();
     }
     st.request_maintenance();
     true
+}
+
+fn activate_initial_spawn_authority(
+    st: &mut Halley,
+    node_id: NodeId,
+    record: &crate::compositor::spawn::state::InitialSpawnPlacement,
+    now: Instant,
+) {
+    if record.overlap_policy != halley_config::InitialWindowOverlapPolicy::None {
+        return;
+    }
+    let Some(anchor_node) = record.anchor_node else {
+        return;
+    };
+    if anchor_node == node_id || st.model.field.node(anchor_node).is_none() {
+        return;
+    }
+
+    let duration_ms = st
+        .runtime
+        .tuning
+        .window_open_duration_ms()
+        .saturating_add(500)
+        .max(900);
+    let until_ms = st.now_ms(now).saturating_add(duration_ms);
+    st.model.spawn_state.initial_spawn_authority.insert(
+        node_id,
+        crate::compositor::spawn::state::InitialSpawnAuthority {
+            anchor_node,
+            until_ms,
+        },
+    );
+    st.input.interaction_state.physics_velocity.remove(&node_id);
+    st.input
+        .interaction_state
+        .physics_velocity
+        .remove(&anchor_node);
 }
 
 pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
@@ -347,10 +440,13 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         st.model.monitor_state.node_monitor.get(node_id).cloned()
     } else if crate::protocol::wayland::session_lock::is_session_lock_surface(st, &root_surface) {
         crate::protocol::wayland::session_lock::monitor_for_surface(st, &root_surface)
+    } else if let Some(monitor) = st.model.monitor_state.layer_surface_monitor.get(&root_key) {
+        Some(monitor.clone())
     } else {
         None
     }
     .unwrap_or_else(|| st.model.monitor_state.focused_monitor.clone());
+    st.request_tty_redraw_for_monitor(target_monitor.as_str());
 
     for (name, output) in &st.model.monitor_state.outputs {
         if *name == target_monitor {
@@ -417,7 +513,6 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             (node.intrinsic_size.x - new_size.x).abs() > 0.5
                 || (node.intrinsic_size.y - new_size.y).abs() > 0.5
         });
-
         if size_changed && st.input.interaction_state.resize_active != Some(node_id) {
             let pending_initial_reveal = st
                 .model
@@ -434,6 +529,8 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                 .workspace_state
                 .last_active_size
                 .insert(node_id, new_size);
+            let finalized_initial_spawn =
+                !pending_initial_reveal && st.finalize_initial_spawn_position(node_id, new_size);
             st.request_maintenance();
             if st.input.interaction_state.resize_static_node != Some(node_id) {
                 let node_monitor = st.model.monitor_state.node_monitor.get(&node_id).cloned();
@@ -452,7 +549,7 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                             st.now_ms(now),
                         );
                     }
-                } else if !pending_initial_reveal {
+                } else if !pending_initial_reveal && !finalized_initial_spawn {
                     st.resolve_overlap_now();
                 }
             }
@@ -497,6 +594,7 @@ pub(super) fn ensure_node_for_surface_impl(
     };
     let predicted_monitor = st.spawn_target_monitor_for_intent(intent);
     let now = Instant::now();
+    st.model.spawn_state.pending_initial_spawn_placement = None;
     let stack_mode_open = st
         .cluster_bloom_for_monitor(predicted_monitor.as_str())
         .is_some();
@@ -601,6 +699,15 @@ pub(super) fn ensure_node_for_surface_impl(
     };
     st.model.surface_to_node.insert(key, id);
     st.assign_node_to_monitor(id, monitor.as_str());
+    if !spawned_in_active_cluster
+        && let Some(record) = st.model.spawn_state.pending_initial_spawn_placement.take()
+    {
+        activate_initial_spawn_authority(st, id, &record, now);
+        st.model
+            .spawn_state
+            .initial_spawn_placements
+            .insert(id, record);
+    }
     if effective_intent.matched_rule {
         st.model
             .spawn_state
